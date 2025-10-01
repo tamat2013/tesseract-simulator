@@ -61,22 +61,26 @@ function tesseractVertices(scale=1){ const verts=[]; for(let i=0;i<16;i++){ cons
 function tesseractEdges(){ const edges=[]; for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){ let diff=0; for(let b=0;b<4;b++) if(((i>>b)&1)!==((j>>b)&1)) diff++; if(diff===1) edges.push([i,j]); } return edges; }
 function project4to3(v,dW){ const [x,y,z,w]=v; const k=1/(dW-w); return [x*k,y*k,z*k]; }
 
-// ---------------------- three.js ----------------------
+// ---------------------- three.js setup ----------------------
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.01,1000);
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 10000);
 camera.position.set(0,0,6);
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth,innerHeight); document.body.appendChild(renderer.domElement);
-window.addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
 
-let pointsMesh=null;
-const pointMat = new THREE.PointsMaterial({size:3, color:'#ff0000'});
+window.addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
 
-const state = { verts: [], dW:2, rotationMatrix: mat4Identity(), globalSpeed:0.3, scale:1 };
+// containers
+let linesMesh = null;
+const lineMat = new THREE.LineBasicMaterial({linewidth:1, color:0xffffff}); // קווים לבנים כברירת מחדל
 
-// ---------------------- build ----------------------
+// ---------------------- build geometry ----------------------
 function updateRender(){
-  if(pointsMesh){ scene.remove(pointsMesh); pointsMesh.geometry.dispose(); pointsMesh=null; }
   if(linesMesh){ scene.remove(linesMesh); linesMesh.geometry.dispose(); linesMesh=null; }
 
   const positions = [];
@@ -86,20 +90,23 @@ function updateRender(){
     positions.push(proj[0], proj[1], proj[2]);
   }
 
-  // תמיד קווים
   const linePos = [];
   for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){
-    let diff=0; for(let b=0;b<4;b++) if(((i>>b)&1)!==((j>>b)&1)) diff++;
+    let diff=0; 
+    for(let b=0;b<4;b++) if(((i>>b)&1)!==((j>>b)&1)) diff++;
     if(diff===1){
-      const ai = i*3, bi = j*3;
-      linePos.push(positions[ai+0], positions[ai+1], positions[ai+2],
-                   positions[bi+0], positions[bi+1], positions[bi+2]);
+      const ai=i*3, bi=j*3;
+      linePos.push(positions[ai+0],positions[ai+1],positions[ai+2],
+                   positions[bi+0],positions[bi+1],positions[bi+2]);
     }
   }
+
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(linePos,3));
-  linesMesh = new THREE.LineSegments(geom, lineMat);
+  linesMesh = new THREE.LineSegments(geom,lineMat);
   scene.add(linesMesh);
+}
+  
 }
 
 // ---------------------- rotation ----------------------
