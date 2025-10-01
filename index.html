@@ -1,204 +1,208 @@
 <!DOCTYPE html>
 <html lang="he">
 <head>
-  <meta charset="UTF-8">
-  <title>Tesseract Simulator</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: black; }
-    #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.5);
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 1em;
-      color: white;
-    }
-    canvas { display: block; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>בחר גרסה</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 30px 10px;
+  }
+  .button {
+    display: block;
+    width: 80%;
+    max-width: 300px;
+    margin: 10px auto;
+    padding: 15px;
+    font-size: 16px;
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    transition: background 0.3s;
+  }
+  .button:hover { background: #ddd; }
+  .latest {
+    background-color: #4CAF50;
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 0 10px #4CAF50;
+  }
+  #menu-container { margin-top: 20px; }
+  #latest-container { margin-bottom: 20px; }
+  .version-input {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    margin: 15px auto;
+  }
+  .version-input span {
+    font-size: 20px;
+    font-weight: bold;
+  }
+  .version-input input {
+    width: 30px;
+    height: 35px;
+    font-size: 18px;
+    text-align: center;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+  }
+</style>
 </head>
 <body>
-  <div id="controls">
-    <label>מהירות: </label>
-    <input type="range" id="speedSlider" min="0" max="0.1" step="0.001" value="0.01">
-    <br><br>
-    <label>גודל: </label>
-    <input type="range" id="sizeSlider" min="1" max="10" step="0.1" value="5">
-    <br><br>
-    <label>עובי: </label>
-    <input type="range" id="thicknessSlider" min="0.1" max="50" step="0.1" value="25">
-    <br><br>
-    <label>שקיפות קרום: </label>
-    <input type="range" id="membraneOpacity" min="0" max="1" step="0.01" value="0.3">
-    <br><br>
-    <label>צבע: </label>
-    <select id="colorSelect">
-      <option value="#008000" selected>ירוק</option>
-      <option value="#ffffff">לבן</option>
-      <option value="#ff0000">אדום</option>
-      <option value="#ffff00">צהוב</option>
-      <option value="#0000ff">כחול</option>
-    </select>
-    <br><br>
-    <label><input type="checkbox" id="reverseRotation"> הפוך כיוון</label>
-  </div>
+<h1>בחר גרסה למודל מערכת השמש</h1>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
-  <script>
-    const DEFAULT_SIZE = 5;
+<div id="latest-container"></div>
+<div id="menu-container"></div>
 
-    let scene, camera, renderer, tesseractLines, membraneMesh;
-    let rotationSpeed = 0.01;
-    let tesseractSize = DEFAULT_SIZE;
-    let lineThickness = 25;
-    let tesseractColor = 0x008000;
-    let reverse = false;
+<script>
+// ======================
+// משתנה הגרסה העדכנית
+let latestVersionText = "גרסה עדכנית: custom"; 
 
-    const points4D = [
-      [-1,-1,-1,-1],[1,-1,-1,-1],[1,1,-1,-1],[-1,1,-1,-1],
-      [-1,-1,1,-1],[1,-1,1,-1],[1,1,1,-1],[-1,1,1,-1],
-      [-1,-1,-1,1],[1,-1,-1,1],[1,1,-1,1],[-1,1,-1,1],
-      [-1,-1,1,1],[1,-1,1,1],[1,1,1,1],[-1,1,1,1]
-    ];
+// רשימת גרסאות והיררכיה
+const versionsHierarchy = {
+  "snapshot (למפתחים)": "snapshot",
+  "Alpha/Beta": {
+    "Beta": "Beta",
+    "Alpha": "Alpha"
+  },
+  "CUSTOM_INPUT": "v1.2.0"
+};
 
-    const EDGES = [
-      [0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],
-      [0,4],[1,5],[2,6],[3,7],[8,9],[9,10],[10,11],[11,8],
-      [12,13],[13,14],[14,15],[15,12],[8,12],[9,13],[10,14],[11,15],
-      [0,8],[1,9],[2,10],[3,11],[4,12],[5,13],[6,14],[7,15]
-    ];
+let currentLevel = versionsHierarchy;
+let history = [];
+let customInputs = []; // נשמור הפניות ל-CUSTOM_INPUT
 
-    let rotatedPoints4D = points4D.map(p => [...p]);
+// פונקציה למציאת הגרסה העדכנית
+function getLastVersion(obj) {
+  let last;
+  for (let key in obj) {
+    const value = obj[key];
+    if (typeof value === 'string') last = value;
+    else last = getLastVersion(value);
+  }
+  return last;
+}
 
-    function getEffectiveThickness(){
-      return lineThickness * (tesseractSize / DEFAULT_SIZE);
-    }
+// הצגת כפתור גרסה עדכנית
+function showLatest(version) {
+  const container = document.getElementById('latest-container');
+  const btn = document.createElement('button');
+  btn.className = 'button latest';
+  btn.textContent = latestVersionText + " (" + version + ")";
+  btn.onclick = () => launchVersion(version);
+  container.appendChild(btn);
+}
 
-    function project4Dto3D(p) {
-      const w = p[3];
-      const scale = 1 / (2 - w/2);
-      return new THREE.Vector3(p[0]*scale*tesseractSize, p[1]*scale*tesseractSize, p[2]*scale*tesseractSize);
-    }
+// פונקציה לאיפוס כל תאי ה-CUSTOM_INPUT
+function resetCustomInputs() {
+  customInputs.forEach(inp => inp.value = "");
+  if (customInputs.length > 0) customInputs[0].focus();
+}
 
-    function createTesseractLines() {
-      const geometry = new THREE.BufferGeometry();
-      const vertices = [];
-      EDGES.forEach(e => {
-        const p1 = project4Dto3D(rotatedPoints4D[e[0]]);
-        const p2 = project4Dto3D(rotatedPoints4D[e[1]]);
-        vertices.push(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z);
+// הצגת התפריט
+function showMenu(level) {
+  const container = document.getElementById('menu-container');
+  container.innerHTML = '';
+  customInputs = []; // איפוס הפניות
+
+  if (history.length > 0) {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'button';
+    backBtn.textContent = '⬅ חזרה';
+    backBtn.onclick = () => {
+      currentLevel = history.pop();
+      showMenu(currentLevel);
+    };
+    container.appendChild(backBtn);
+  }
+
+  for (let key in level) {
+    const value = level[key];
+
+    if (key === "CUSTOM_INPUT") {
+      const div = document.createElement('div');
+      div.className = "version-input";
+
+      div.appendChild(document.createElement('span')).textContent = "v";
+
+      for (let i = 0; i < 3; i++) {
+        const input = document.createElement('input');
+        input.maxLength = 1;
+        customInputs.push(input);
+        div.appendChild(input);
+        if (i < 2) div.appendChild(document.createElement('span')).textContent = ".";
+      }
+
+      container.appendChild(div);
+
+      function checkAllFilledAndLaunch() {
+        if (customInputs.every(inp => inp.value !== "")) {
+          const version = "v" + customInputs.map(inp => inp.value).join(".");
+          launchVersion(version);
+        }
+      }
+
+      customInputs.forEach((inp, i) => {
+        inp.addEventListener("input", () => {
+          if (inp.value.length === inp.maxLength && i < customInputs.length - 1) {
+            customInputs[i + 1].focus();
+          }
+          checkAllFilledAndLaunch();
+        });
+
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Backspace" && inp.value === "" && i > 0) {
+            customInputs[i - 1].focus();
+            if (customInputs[i - 1].value !== "") customInputs[i - 1].value = "";
+          }
+        });
+
+        inp.addEventListener("keypress", (e) => {
+          if (e.key === "Enter") checkAllFilledAndLaunch();
+        });
       });
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
-      const mat = new THREE.LineBasicMaterial({ color: tesseractColor, linewidth: getEffectiveThickness() });
-      return new THREE.LineSegments(geometry, mat);
+
+      // פוקוס אוטומטי על התא הראשון
+      customInputs[0].focus();
+
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'button';
+      btn.textContent = key;
+      btn.onclick = () => {
+        resetCustomInputs(); // איפוס לפני מעבר גרסה
+        if (typeof value === 'string') launchVersion(value);
+        else {
+          history.push(currentLevel);
+          currentLevel = value;
+          showMenu(currentLevel);
+        }
+      };
+      container.appendChild(btn);
     }
+  }
+}
 
-    function createMembrane(opacity){
-      const pts = rotatedPoints4D.map(p => project4Dto3D(p));
-      const mat = new THREE.MeshPhysicalMaterial({ 
-        color: tesseractColor, 
-        transparent: true, 
-        opacity: opacity, 
-        roughness: 0.1,
-        metalness: 0.0,
-        transmission: 1.0,
-        side: THREE.DoubleSide
-      });
+// הפונקציה שמשנה עמוד לגרסה שנבחרה
+function launchVersion(version) {
+  resetCustomInputs(); // איפוס כל תאי הזנת גרסה
+  const baseUrl = 'https://giamat13.github.io/Solar-system-model/';
+  window.location.href = baseUrl + version;
+}
 
-      const positions = [];
-      for(let i=0;i<8;i++){
-        const inner = pts[i];
-        const outer = pts[i+8];
-        const nextInner = pts[(i+1)%4 + Math.floor(i/4)*4];
-        const nextOuter = pts[(i+1)%4 + Math.floor(i/4)*4 + 8];
+// ======================
+// שינוי גרסת הכפתור עדכנית לפי צורך
+latestVersionText = "גרסה אחרונה"; 
 
-        positions.push(inner.x,inner.y,inner.z);
-        positions.push(nextInner.x,nextInner.y,nextInner.z);
-        positions.push(nextOuter.x,nextOuter.y,nextOuter.z);
-
-        positions.push(inner.x,inner.y,inner.z);
-        positions.push(nextOuter.x,nextOuter.y,nextOuter.z);
-        positions.push(outer.x,outer.y,outer.z);
-      }
-
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
-      geom.computeVertexNormals();
-      return new THREE.Mesh(geom, mat);
-    }
-
-    function rotate4D(points, angle) {
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      for(let i=0;i<points.length;i++){
-        let x=points[i][0], y=points[i][1];
-        points[i][0] = x*cos - y*sin;
-        points[i][1] = x*sin + y*cos;
-      }
-      for(let i=0;i<points.length;i++){
-        let x=points[i][0], z=points[i][2];
-        points[i][0] = x*cos - z*sin;
-        points[i][2] = x*sin + z*cos;
-      }
-      for(let i=0;i<points.length;i++){
-        let y=points[i][1], w=points[i][3];
-        points[i][1] = y*cos - w*sin;
-        points[i][3] = y*sin + w*cos;
-      }
-      for(let i=0;i<points.length;i++){
-        let z=points[i][2], w=points[i][3];
-        points[i][2] = z*cos - w*sin;
-        points[i][3] = z*sin + w*cos;
-      }
-    }
-
-    function init(){
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-      renderer = new THREE.WebGLRenderer({antialias:true});
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
-
-      tesseractLines = createTesseractLines();
-      scene.add(tesseractLines);
-
-      membraneMesh = createMembrane(parseFloat(document.getElementById('membraneOpacity').value));
-      scene.add(membraneMesh);
-
-      camera.position.z = 20;
-      animate();
-    }
-
-    function animate(){
-      requestAnimationFrame(animate);
-      rotate4D(rotatedPoints4D, reverse ? -rotationSpeed : rotationSpeed);
-
-      if(tesseractLines) scene.remove(tesseractLines);
-      tesseractLines = createTesseractLines();
-      scene.add(tesseractLines);
-
-      if(membraneMesh) scene.remove(membraneMesh);
-      membraneMesh = createMembrane(parseFloat(document.getElementById('membraneOpacity').value));
-      scene.add(membraneMesh);
-
-      renderer.render(scene, camera);
-    }
-
-    document.getElementById('speedSlider').addEventListener('input', e => { rotationSpeed = parseFloat(e.target.value); });
-    document.getElementById('sizeSlider').addEventListener('input', e => { tesseractSize = parseFloat(e.target.value); });
-    document.getElementById('thicknessSlider').addEventListener('input', e => { lineThickness = parseFloat(e.target.value); });
-    document.getElementById('membraneOpacity').addEventListener('input', e => { if(membraneMesh && membraneMesh.material) membraneMesh.material.opacity = parseFloat(e.target.value); });
-    document.getElementById('colorSelect').addEventListener('change', e => { tesseractColor = parseInt(e.target.value.replace('#','0x')); });
-    document.getElementById('reverseRotation').addEventListener('change', e => { reverse = e.target.checked; });
-
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth/window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    init();
-  </script>
+// התחלת התפריט
+const latestVersion = getLastVersion(versionsHierarchy);
+showLatest(latestVersion);
+showMenu(currentLevel);
+</script>
 </body>
 </html>
