@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>טסרקט 4D אינטראקטיבי</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 1em;
+      color: white;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>בחר צורה: </label>
+    <select id="shapeSelect">
+      <option value="tesseract" selected>קוביה 4D</option>
+      <option value="sphere">כדור 4D</option>
+    </select>
+    <br><br>
+    <label>מהירות: </label>
+    <input type="range" id="speedSlider" min="0" max="0.1" step="0.001" value="0.01">
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer, mesh;
+    let rotationSpeed = 0.01;
+
+    const points4D = [
+      [-1,-1,-1,-1],[1,-1,-1,-1],[1,1,-1,-1],[-1,1,-1,-1],
+      [-1,-1,1,-1],[1,-1,1,-1],[1,1,1,-1],[-1,1,1,-1],
+      [-1,-1,-1,1],[1,-1,-1,1],[1,1,-1,1],[-1,1,-1,1],
+      [-1,-1,1,1],[1,-1,1,1],[1,1,1,1],[-1,1,1,1]
+    ];
+
+    function project4Dto3D(p) {
+      const w = p[3];
+      const scale = 1 / (1 + w/4);
+      return new THREE.Vector3(p[0]*scale*5, p[1]*scale*5, p[2]*scale*5);
+    }
+
+    function createTesseract() {
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const edges = [
+        [0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],
+        [0,4],[1,5],[2,6],[3,7],[8,9],[9,10],[10,11],[11,8],
+        [12,13],[13,14],[14,15],[15,12],[8,12],[9,13],[10,14],[11,15],
+        [0,8],[1,9],[2,10],[3,11],[4,12],[5,13],[6,14],[7,15]
+      ];
+      edges.forEach(e => {
+        const p1 = project4Dto3D(points4D[e[0]]);
+        const p2 = project4Dto3D(points4D[e[1]]);
+        vertices.push(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z);
+      });
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
+      return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color:0x00ffcc}));
+    }
+
+    function createSphere4D() {
+      // פשוט כדור שמסתובב כמו הטסרקט (מוחזר כבשלב ביניים 4D->3D)
+      const geometry = new THREE.SphereGeometry(4,16,16);
+      return new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({color:0x00ffcc}));
+    }
+
+    function createShape(type) {
+      if(type==='tesseract') return createTesseract();
+      if(type==='sphere') return createSphere4D();
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      mesh = createShape('tesseract');
+      scene.add(mesh);
+      camera.position.z = 20;
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      mesh.rotation.x += rotationSpeed;
+      mesh.rotation.y += rotationSpeed;
+      mesh.rotation.z += rotationSpeed;
+      renderer.render(scene, camera);
+    }
+
+    document.getElementById('shapeSelect').addEventListener('change', e => {
+      scene.remove(mesh);
+      mesh = createShape(e.target.value);
+      scene.add(mesh);
+    });
+
+    document.getElementById('speedSlider').addEventListener('input', e => {
+      rotationSpeed = parseFloat(e.target.value);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    init();
+  </script>
+</body>
+</html>
