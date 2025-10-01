@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>טסרקט 4D אינטראקטיבי</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 1em;
+      color: white;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>מהירות: </label>
+    <input type="range" id="speedSlider" min="0" max="0.1" step="0.001" value="0.01">
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer, tesseract;
+    let rotationSpeed = 0.01;
+
+    const points4D = [
+      [-1,-1,-1,-1],[1,-1,-1,-1],[1,1,-1,-1],[-1,1,-1,-1],
+      [-1,-1,1,-1],[1,-1,1,-1],[1,1,1,-1],[-1,1,1,-1],
+      [-1,-1,-1,1],[1,-1,-1,1],[1,1,-1,1],[-1,1,-1,1],
+      [-1,-1,1,1],[1,-1,1,1],[1,1,1,1],[-1,1,1,1]
+    ];
+
+    let rotatedPoints4D = points4D.map(p => [...p]);
+
+    function project4Dto3D(p) {
+      const w = p[3];
+      const scale = 1 / (2 - w/2); // פרספקטיבה יותר דינמית ל-4D
+      return new THREE.Vector3(p[0]*scale*5, p[1]*scale*5, p[2]*scale*5);
+    }
+
+    function createTesseract() {
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const edges = [
+        [0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],
+        [0,4],[1,5],[2,6],[3,7],[8,9],[9,10],[10,11],[11,8],
+        [12,13],[13,14],[14,15],[15,12],[8,12],[9,13],[10,14],[11,15],
+        [0,8],[1,9],[2,10],[3,11],[4,12],[5,13],[6,14],[7,15]
+      ];
+      edges.forEach(e => {
+        const p1 = project4Dto3D(rotatedPoints4D[e[0]]);
+        const p2 = project4Dto3D(rotatedPoints4D[e[1]]);
+        vertices.push(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z);
+      });
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
+      return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color:0x00ffcc}));
+    }
+
+    function rotate4D(points, angle) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      // סיבוב במישור XY
+      for(let i=0;i<points.length;i++){
+        let x=points[i][0],y=points[i][1];
+        points[i][0]=x*cos - y*sin;
+        points[i][1]=x*sin + y*cos;
+      }
+      // סיבוב במישור XZ
+      for(let i=0;i<points.length;i++){
+        let x=points[i][0],z=points[i][2];
+        points[i][0]=x*cos - z*sin;
+        points[i][2]=x*sin + z*cos;
+      }
+      // סיבוב במישור YW
+      for(let i=0;i<points.length;i++){
+        let y=points[i][1], w=points[i][3];
+        points[i][1]=y*cos - w*sin;
+        points[i][3]=y*sin + w*cos;
+      }
+      // סיבוב במישור ZW
+      for(let i=0;i<points.length;i++){
+        let z=points[i][2], w=points[i][3];
+        points[i][2]=z*cos - w*sin;
+        points[i][3]=z*sin + w*cos;
+      }
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      tesseract = createTesseract();
+      scene.add(tesseract);
+      camera.position.z = 20;
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      rotate4D(rotatedPoints4D, rotationSpeed);
+      scene.remove(tesseract);
+      tesseract = createTesseract();
+      scene.add(tesseract);
+      renderer.render(scene, camera);
+    }
+
+    document.getElementById('speedSlider').addEventListener('input', e => {
+      rotationSpeed = parseFloat(e.target.value);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    init();
+  </script>
+</body>
+</html>
