@@ -8,7 +8,7 @@
 html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Arial}
 #ui{position:fixed;left:12px;top:12px;z-index:5;backdrop-filter: blur(6px);background:rgba(255,255,255,0.95);padding:10px;border-radius:8px;max-width:360px}
 label{display:block;font-size:13px;margin-top:6px}
-input[type=range],input[type=number]{width:100%}
+input[type=range],input[type=number],input[type=color]{width:100%}
 canvas{display:block}
 button{margin-top:8px;padding:6px 10px;border-radius:6px;border:1px solid #aaa;background:#fff}
 .row{display:flex;gap:6px}
@@ -19,12 +19,12 @@ button{margin-top:8px;padding:6px 10px;border-radius:6px;border:1px solid #aaa;b
 <div id="ui">
   <strong>סימולציית טסרקט 4D</strong>
 
-  <label>הצג כ־: 
-    <select id="renderMode"><option value="points">נקודות</option><option value="edges">קווים</option></select>
-  </label>
-
   <label>מהירות סיבוב: <input id="globalSpeed" type="range" min="0" max="1" step="0.01" value="0.3"></label>
+  <label>כיוון סיבוב: 
+    <select id="rotationDir"><option value="1">חיובי</option><option value="-1">שלילי</option></select>
+  </label>
   <label>גודל נקודות: <input id="size" type="range" min="1" max="8" step="1" value="3"></label>
+  <label>צבע נקודות: <input id="pointColor" type="color" value="#ff0000"></label>
   <label>מרחק W->3D (dW): <input id="dW" type="range" min="0.5" max="10" step="0.1" value="2"></label>
 
   <button id="advancedBtn">אפשרויות מתקדמות ⬇</button>
@@ -69,42 +69,48 @@ const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight); document.body.appendChild(renderer.domElement);
 window.addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
 
-let pointsMesh=null, linesMesh=null;
-const pointMat = new THREE.PointsMaterial({size:3});
-const lineMat = new THREE.LineBasicMaterial({linewidth:1});
+let pointsMesh=null;
+const pointMat = new THREE.PointsMaterial({size:3, color:'#ff0000'});
 
-const state = { verts: [], edges: [], dW:2, rotationMatrix: mat4Identity(), renderMode:'edges', globalSpeed:0.3, scale:1 };
+const state = { verts: [], dW:2, rotationMatrix: mat4Identity(), globalSpeed:0.3, scale:1 };
 
 // ---------------------- build ----------------------
 function updateRender(){
   if(pointsMesh){ scene.remove(pointsMesh); pointsMesh.geometry.dispose(); pointsMesh=null; }
   if(linesMesh){ scene.remove(linesMesh); linesMesh.geometry.dispose(); linesMesh=null; }
-  const positions=[];
+
+  const positions = [];
   for(const v of state.verts){
-    const p = applyMat4(state.rotationMatrix,v);
-    const proj = project4to3(p,state.dW);
-    positions.push(proj[0],proj[1],proj[2]);
+    const p = applyMat4(state.rotationMatrix, v);
+    const proj = project4to3(p, state.dW);
+    positions.push(proj[0], proj[1], proj[2]);
   }
-  if(state.renderMode==='points'){
-    const geom = new THREE.BufferGeometry(); geom.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
-    pointMat.size = parseFloat(document.getElementById('size').value);
-    pointsMesh = new THREE.Points(geom, pointMat); scene.add(pointsMesh);
-  } else {
-    const linePos=[];
-    for(const e of state.edges){ const a=e[0], b=e[1]; linePos.push(positions[a*3],positions[a*3+1],positions[a*3+2], positions[b*3],positions[b*3+1],positions[b*3+2]); }
-    const geom = new THREE.BufferGeometry(); geom.setAttribute('position', new THREE.Float32BufferAttribute(linePos,3));
-    linesMesh = new THREE.LineSegments(geom,lineMat); scene.add(linesMesh);
+
+  // תמיד קווים
+  const linePos = [];
+  for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){
+    let diff=0; for(let b=0;b<4;b++) if(((i>>b)&1)!==((j>>b)&1)) diff++;
+    if(diff===1){
+      const ai = i*3, bi = j*3;
+      linePos.push(positions[ai+0], positions[ai+1], positions[ai+2],
+                   positions[bi+0], positions[bi+1], positions[bi+2]);
+    }
   }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(linePos,3));
+  linesMesh = new THREE.LineSegments(geom, lineMat);
+  scene.add(linesMesh);
 }
 
 // ---------------------- rotation ----------------------
 function buildRotationMatrixFromSliders(t){
-  const rXY=parseFloat(document.getElementById('rXY').value)*t;
-  const rXZ=parseFloat(document.getElementById('rXZ').value)*t;
-  const rYZ=parseFloat(document.getElementById('rYZ').value)*t;
-  const rXW=parseFloat(document.getElementById('rXW').value)*t;
-  const rYW=parseFloat(document.getElementById('rYW').value)*t;
-  const rZW=parseFloat(document.getElementById('rZW').value)*t;
+  const dir = parseFloat(document.getElementById('rotationDir').value);
+  const rXY=parseFloat(document.getElementById('rXY').value)*t*dir;
+  const rXZ=parseFloat(document.getElementById('rXZ').value)*t*dir;
+  const rYZ=parseFloat(document.getElementById('rYZ').value)*t*dir;
+  const rXW=parseFloat(document.getElementById('rXW').value)*t*dir;
+  const rYW=parseFloat(document.getElementById('rYW').value)*t*dir;
+  const rZW=parseFloat(document.getElementById('rZW').value)*t*dir;
   let R = mat4Identity();
   R = mat4Mul(R, rotation4(0,1,rXY));
   R = mat4Mul(R, rotation4(0,2,rXZ));
@@ -118,11 +124,10 @@ function buildRotationMatrixFromSliders(t){
 // ---------------------- animation ----------------------
 let lastTime=performance.now();
 function animate(time){
-  const dt = (time-lastTime)/1000; lastTime=time;
-  const gs = parseFloat(document.getElementById('globalSpeed').value);
+  const dt=(time-lastTime)/1000; lastTime=time;
+  const gs=parseFloat(document.getElementById('globalSpeed').value);
   state.rotationMatrix = mat4Mul(buildRotationMatrixFromSliders(dt*gs), state.rotationMatrix);
   state.dW = parseFloat(document.getElementById('dW').value);
-  state.renderMode = document.getElementById('renderMode').value;
   state.scale = parseFloat(document.getElementById('cubeScale')?.value || 1);
   updateRender();
   renderer.render(scene,camera);
@@ -130,12 +135,12 @@ function animate(time){
 }
 
 // ---------------------- load tesseract ----------------------
-function loadTesseract(){ const s=parseFloat(document.getElementById('cubeScale').value||1); state.verts = tesseractVertices(s); state.edges = tesseractEdges(); updateRender(); }
+function loadTesseract(){ const s=parseFloat(document.getElementById('cubeScale').value||1); state.verts = tesseractVertices(s); updateRender(); }
 loadTesseract();
 
 // ---------------------- UI wiring ----------------------
-document.getElementById('renderMode').addEventListener('change', ()=>updateRender());
-document.getElementById('size').addEventListener('input', ()=>updateRender());
+document.getElementById('size').addEventListener('input',()=>updateRender());
+document.getElementById('pointColor').addEventListener('input',()=>updateRender());
 document.getElementById('advancedBtn').addEventListener('click',()=>{
   const advDiv=document.getElementById('advancedOptions');
   if(advDiv.style.display==='none'){ advDiv.style.display='block'; document.getElementById('advancedBtn').textContent='אפשרויות מתקדמות ⬆'; }
