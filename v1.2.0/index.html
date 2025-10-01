@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>Tesseract Simulator</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 1em;
+      color: white;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>מהירות: </label>
+    <input type="range" id="speedSlider" min="0" max="0.1" step="0.001" value="0.01">
+    <br><br>
+    <label>גודל: </label>
+    <input type="range" id="sizeSlider" min="1" max="10" step="0.1" value="5">
+    <br><br>
+    <label>עובי: </label>
+    <input type="range" id="thicknessSlider" min="0.1" max="50" step="0.1" value="25">
+    <br><br>
+    <label>שקיפות קרום: </label>
+    <input type="range" id="membraneOpacity" min="0" max="1" step="0.01" value="0.3">
+    <br><br>
+    <label>צבע: </label>
+    <select id="colorSelect">
+      <option value="#008000" selected>ירוק</option>
+      <option value="#ffffff">לבן</option>
+      <option value="#ff0000">אדום</option>
+      <option value="#ffff00">צהוב</option>
+      <option value="#0000ff">כחול</option>
+    </select>
+    <br><br>
+    <label><input type="checkbox" id="reverseRotation"> הפוך כיוון</label>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+  <script>
+    const DEFAULT_SIZE = 5;
+
+    let scene, camera, renderer, tesseractLines, membraneMesh;
+    let rotationSpeed = 0.01;
+    let tesseractSize = DEFAULT_SIZE;
+    let lineThickness = 25;
+    let tesseractColor = 0x008000;
+    let reverse = false;
+
+    const points4D = [
+      [-1,-1,-1,-1],[1,-1,-1,-1],[1,1,-1,-1],[-1,1,-1,-1],
+      [-1,-1,1,-1],[1,-1,1,-1],[1,1,1,-1],[-1,1,1,-1],
+      [-1,-1,-1,1],[1,-1,-1,1],[1,1,-1,1],[-1,1,-1,1],
+      [-1,-1,1,1],[1,-1,1,1],[1,1,1,1],[-1,1,1,1]
+    ];
+
+    const EDGES = [
+      [0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7],[8,9],[9,10],[10,11],[11,8],
+      [12,13],[13,14],[14,15],[15,12],[8,12],[9,13],[10,14],[11,15],
+      [0,8],[1,9],[2,10],[3,11],[4,12],[5,13],[6,14],[7,15]
+    ];
+
+    let rotatedPoints4D = points4D.map(p => [...p]);
+
+    function getEffectiveThickness(){
+      return lineThickness * (tesseractSize / DEFAULT_SIZE);
+    }
+
+    function project4Dto3D(p) {
+      const w = p[3];
+      const scale = 1 / (2 - w/2);
+      return new THREE.Vector3(p[0]*scale*tesseractSize, p[1]*scale*tesseractSize, p[2]*scale*tesseractSize);
+    }
+
+    function createTesseractLines() {
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      EDGES.forEach(e => {
+        const p1 = project4Dto3D(rotatedPoints4D[e[0]]);
+        const p2 = project4Dto3D(rotatedPoints4D[e[1]]);
+        vertices.push(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z);
+      });
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
+      const mat = new THREE.LineBasicMaterial({ color: tesseractColor, linewidth: getEffectiveThickness() });
+      return new THREE.LineSegments(geometry, mat);
+    }
+
+    function createMembrane(opacity){
+      const pts = rotatedPoints4D.map(p => project4Dto3D(p));
+      const mat = new THREE.MeshPhysicalMaterial({ 
+        color: tesseractColor, 
+        transparent: true, 
+        opacity: opacity, 
+        roughness: 0.1,
+        metalness: 0.0,
+        transmission: 1.0,
+        side: THREE.DoubleSide
+      });
+
+      const positions = [];
+      for(let i=0;i<8;i++){
+        const inner = pts[i];
+        const outer = pts[i+8];
+        const nextInner = pts[(i+1)%4 + Math.floor(i/4)*4];
+        const nextOuter = pts[(i+1)%4 + Math.floor(i/4)*4 + 8];
+
+        positions.push(inner.x,inner.y,inner.z);
+        positions.push(nextInner.x,nextInner.y,nextInner.z);
+        positions.push(nextOuter.x,nextOuter.y,nextOuter.z);
+
+        positions.push(inner.x,inner.y,inner.z);
+        positions.push(nextOuter.x,nextOuter.y,nextOuter.z);
+        positions.push(outer.x,outer.y,outer.z);
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+      geom.computeVertexNormals();
+      return new THREE.Mesh(geom, mat);
+    }
+
+    function rotate4D(points, angle) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      for(let i=0;i<points.length;i++){
+        let x=points[i][0], y=points[i][1];
+        points[i][0] = x*cos - y*sin;
+        points[i][1] = x*sin + y*cos;
+      }
+      for(let i=0;i<points.length;i++){
+        let x=points[i][0], z=points[i][2];
+        points[i][0] = x*cos - z*sin;
+        points[i][2] = x*sin + z*cos;
+      }
+      for(let i=0;i<points.length;i++){
+        let y=points[i][1], w=points[i][3];
+        points[i][1] = y*cos - w*sin;
+        points[i][3] = y*sin + w*cos;
+      }
+      for(let i=0;i<points.length;i++){
+        let z=points[i][2], w=points[i][3];
+        points[i][2] = z*cos - w*sin;
+        points[i][3] = z*sin + w*cos;
+      }
+    }
+
+    function init(){
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      tesseractLines = createTesseractLines();
+      scene.add(tesseractLines);
+
+      membraneMesh = createMembrane(parseFloat(document.getElementById('membraneOpacity').value));
+      scene.add(membraneMesh);
+
+      camera.position.z = 20;
+      animate();
+    }
+
+    function animate(){
+      requestAnimationFrame(animate);
+      rotate4D(rotatedPoints4D, reverse ? -rotationSpeed : rotationSpeed);
+
+      if(tesseractLines) scene.remove(tesseractLines);
+      tesseractLines = createTesseractLines();
+      scene.add(tesseractLines);
+
+      if(membraneMesh) scene.remove(membraneMesh);
+      membraneMesh = createMembrane(parseFloat(document.getElementById('membraneOpacity').value));
+      scene.add(membraneMesh);
+
+      renderer.render(scene, camera);
+    }
+
+    document.getElementById('speedSlider').addEventListener('input', e => { rotationSpeed = parseFloat(e.target.value); });
+    document.getElementById('sizeSlider').addEventListener('input', e => { tesseractSize = parseFloat(e.target.value); });
+    document.getElementById('thicknessSlider').addEventListener('input', e => { lineThickness = parseFloat(e.target.value); });
+    document.getElementById('membraneOpacity').addEventListener('input', e => { if(membraneMesh && membraneMesh.material) membraneMesh.material.opacity = parseFloat(e.target.value); });
+    document.getElementById('colorSelect').addEventListener('change', e => { tesseractColor = parseInt(e.target.value.replace('#','0x')); });
+    document.getElementById('reverseRotation').addEventListener('change', e => { reverse = e.target.checked; });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    init();
+  </script>
+</body>
+</html>
