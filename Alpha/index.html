@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="he">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>4D City & Shapes — סימולציה אינטראקטיבית</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Arial}
+    #ui{position:fixed;left:12px;top:12px;z-index:5;backdrop-filter: blur(6px);background:rgba(255,255,255,0.95);padding:10px;border-radius:8px;max-width:360px}
+    label{display:block;font-size:13px;margin-top:6px}
+    select,input[type=range],input[type=number]{width:100%}
+    canvas{display:block}
+    #legend{font-size:12px;margin-top:8px;color:#222}
+    .row{display:flex;gap:6px}
+    .row > *{flex:1}
+    button{margin-top:8px;padding:6px 10px;border-radius:6px;border:1px solid #aaa;background:#fff}
+    #errorOverlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);color:#fff;font-size:16px;z-index:9999;display:none}
+    #errorOverlay .box{background:#222;padding:20px;border-radius:8px;max-width:600px}
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <strong>סימולציית 4D — עיר וצורות</strong>
+    <label>בחר מצב:
+      <select id="mode">
+        <option value="tesseract">טסרקט (קובייה 4D)</option>
+        <option value="hypercube_city">"עיר" של היפר-קוביות (4D City)</option>
+        <option value="hypersphere">כדור 4D (נקודות)</option>
+        <option value="simplex">פירמידה/4-סימפלקס</option>
+        <option value="cone">חרוט 4D (נקודות)</option>
+      </select>
+    </label>
+
+    <label>הצג כ־: <select id="renderMode"><option value="points">נקודות</option><option value="edges">קווים/קשתות</option></select></label>
+
+    <label>מהירות סיבוב (גלובלי): <input id="globalSpeed" type="range" min="0" max="1" step="0.01" value="0.3"></label>
+
+    <label>סיבוב על מישורים (סימטריה):</label>
+    <div class="row">
+      <div>
+        <label>XY <input id="rXY" type="range" min="-2" max="2" step="0.01" value="0"></label>
+        <label>XZ <input id="rXZ" type="range" min="-2" max="2" step="0.01" value="0"></label>
+        <label>YZ <input id="rYZ" type="range" min="-2" max="2" step="0.01" value="0"></label>
+      </div>
+      <div>
+        <label>XW <input id="rXW" type="range" min="-2" max="2" step="0.01" value="0.6"></label>
+        <label>YW <input id="rYW" type="range" min="-2" max="2" step="0.01" value="0.2"></label>
+        <label>ZW <input id="rZW" type="range" min="-2" max="2" step="0.01" value="0"></label>
+      </div>
+    </div>
+
+    <label>פרמטרי הקרנה:</label>
+    <label>מרחק פרספקטיבה W -> 3D (dW): <input id="dW" type="range" min="0.5" max="10" step="0.1" value="2"></label>
+    <label>גודל נקודות: <input id="size" type="range" min="1" max="8" step="1" value="3"></label>
+
+    <label>פרמטרים לצורת העיר (כאשר בחרת "עיר"):</label>
+    <div class="row">
+      <label>gridX <input id="gridX" type="number" value="6" min="1" max="20"></label>
+      <label>gridZ <input id="gridZ" type="number" value="6" min="1" max="20"></label>
+    </div>
+    <label>seed height variance <input id="hVar" type="range" min="0" max="3" step="0.1" value="1.0"></label>
+
+    <div id="legend">הסבר קצר: ב‑4D יש ציר נוסף (W). הסיבוב נעשה במישורים; כאן תוכל לסובב במישורים הכוללים W כדי לראות "שינויי צורה" שאינם אפשריים ב‑3D.</div>
+    <button id="saveBtn">שמור כקובץ HTML</button>
+  </div>
+
+  <div id="errorOverlay"><div class="box"><div id="errorMsg">שגיאה: ספריית Three.js לא נטענה.</div><div style="margin-top:10px"><button id="retryLoad">נסה לטעון שוב</button> <button id="openConsole">פתח קונסול</button></div></div></div>
+
+  <!-- dynamic loader for three.js with fallback URLs -->
+  <script>
+  (function(){
+    const cdns = [
+      'https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js',
+      'https://unpkg.com/three@0.146.0/build/three.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/three.js/r146/three.min.js'
+    ];
+
+    function loadScript(url){
+      return new Promise((resolve,reject)=>{
+        const s = document.createElement('script');
+        s.src = url; s.crossOrigin = 'anonymous'; s.async = true;
+        s.onload = ()=>{ console.info('three.js loaded from',url); resolve(url); };
+        s.onerror = ()=>{ console.warn('Failed to load three.js from',url); s.remove(); reject(url); };
+        document.head.appendChild(s);
+      });
+    }
+
+    async function loadWithFallback(){
+      for(const u of cdns){
+        try{ await loadScript(u); return; } catch(e){ /* try next */ }
+      }
+      throw new Error('Failed to load three.js from known CDNs');
+    }
+
+    window.loadThreeWithFallback = loadWithFallback;
+  })();
+  </script>
+
+  <script>
+  // main app runs after three.js is available
+  (async function(){
+    const showError = (msg)=>{
+      const ov = document.getElementById('errorOverlay');
+      document.getElementById('errorMsg').textContent = msg;
+      ov.style.display = 'flex';
+    };
+
+    const hideError = ()=>{ const ov=document.getElementById('errorOverlay'); ov.style.display='none'; };
+
+    async function start(){
+      try{
+        await window.loadThreeWithFallback();
+      } catch(err){
+        showError('שגיאה: לא הצלחנו לטעון את ספריית Three.js מהאינטרנט. ודא שדפדפןך מאפשר טעינת סקריפטים חיצוניים או הרץ את הקובץ במצב מקומי עם Three.js זמינה.');
+        document.getElementById('retryLoad').onclick = ()=>{ location.reload(); };
+        document.getElementById('openConsole').onclick = ()=>{ console.log('פתח את Developer Tools (F12) כדי לראות פרטים נוספים'); };
+        return;
+      }
+
+      // ensure THREE exists
+      if(typeof THREE === 'undefined'){
+        showError('שגיאה: Three.js נטען אך אינו זמין כמשתנה גלובלי THREE. בדוק גרסה אחרת.');
+        return;
+      }
+
+      // ---------------------- 4D math utilities ----------------------
+      function mat4Identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+      function mat4Mul(A,B){ const C=new Array(16).fill(0); for(let i=0;i<4;i++) for(let j=0;j<4;j++) for(let k=0;k<4;k++) C[i*4+j]+=A[i*4+k]*B[k*4+j]; return C }
+      function applyMat4(m, v){ const [x,y,z,w]=v; return [ m[0]*x + m[1]*y + m[2]*z + m[3]*w, m[4]*x + m[5]*y + m[6]*z + m[7]*w, m[8]*x + m[9]*y + m[10]*z + m[11]*w, m[12]*x + m[13]*y + m[14]*z + m[15]*w ]; }
+
+      // rotation in plane (a,b) where indices 0..3 map to x,y,z,w
+      function rotation4(a,b,theta){ const M=mat4Identity(); M[a*4+a]=Math.cos(theta); M[b*4+b]=Math.cos(theta); M[a*4+b]=-Math.sin(theta); M[b*4+a]=Math.sin(theta); return M }
+
+      // ---------------------- Shape generators ----------------------
+      function tesseractVertices(scale=1){ const verts=[]; for(let i=0;i<16;i++){ const x=(i&1)?1:-1; const y=(i&2)?1:-1; const z=(i&4)?1:-1; const w=(i&8)?1:-1; verts.push([x*scale,y*scale,z*scale,w*scale]); } return verts }
+
+      function fourSpherePoints(samples=800, radius=1){ const pts=[]; for(let i=0;i<samples;i++){ let v=[randn(),randn(),randn(),randn()]; const norm=Math.hypot(...v); v=v.map(x=>x/norm*radius); pts.push(v); } return pts }
+      function randn(){ let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+      function simplex4(){ const verts=[[1,1,1,-1],[1,1,-1,1],[1,-1,1,1],[-1,1,1,1],[-1,-1,-1,-1]]; return verts.map(v=>v.map(x=>x*0.6)); }
+
+      function cone4(samples=600){ const pts=[]; for(let i=0;i<samples;i++){ const t=Math.random(); const r=Math.sqrt(Math.random()); const theta=Math.random()*Math.PI*2; const x=r*Math.cos(theta)*(1-t); const y=r*Math.sin(theta)*(1-t); const z=(Math.random()*2-1)*(1-t); const w= t*1.2 - 0.6; pts.push([x,y,z,w]); } return pts }
+
+      function hypercubeCity(gridX=6,gridZ=6,hVar=1,scale=0.6){ const verts=[]; const edges=[]; for(let gx=0;gx<gridX;gx++) for(let gz=0;gz<gridZ;gz++){ const cx=(gx - gridX/2 + 0.5)*2.5*scale; const cz=(gz - gridZ/2 + 0.5)*2.5*scale; const h=(Math.random()*2-1)*hVar + 1.2; const cw=(Math.random()*2-1)*0.8; const baseIdx = verts.length; for(let i=0;i<16;i++){ const x = ((i&1)?1:-1)*0.5*scale + cx; const y = ((i&2)?1:-1)*0.5*scale * h; const z = ((i&4)?1:-1)*0.5*scale + cz; const w = ((i&8)?1:-1)*0.5*scale + cw; verts.push([x,y,z,w]); } for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){ let diff=0; for(let b=0;b<4;b++) if(((i>>b)&1) !== ((j>>b)&1)) diff++; if(diff===1) edges.push([baseIdx+i, baseIdx+j]); } } return {verts,edges}; }
+
+      // ---------------------- Projection 4D -> 3D ----------------------
+      function project4to3(v, dW){ const [x,y,z,w]=v; const denom = (dW - w); const k = (Math.abs(denom) < 1e-6)? (denom<0?-1e6:1e6) : 1/denom; return [x*k, y*k, z*k]; }
+
+      // ---------------------- three.js setup ----------------------
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 10000);
+      camera.position.set(0,0,6);
+      const renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer.setSize(innerWidth,innerHeight);
+      document.body.appendChild(renderer.domElement);
+      window.addEventListener('resize', ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+
+      // containers
+      let pointsMesh = null, linesMesh = null;
+      const pointMat = new THREE.PointsMaterial({size:3,sizeAttenuation:true});
+      const lineMat = new THREE.LineBasicMaterial({linewidth:1});
+
+      // state
+      const state = { verts: [], edges: [], dW:2, rotationMatrix: mat4Identity(), mode:'tesseract', renderMode:'edges', globalSpeed:0.3 };
+
+      // build geometry from current verts/edges
+      function updateRender(){
+        if(pointsMesh){ scene.remove(pointsMesh); pointsMesh.geometry.dispose(); pointsMesh=null; }
+        if(linesMesh){ scene.remove(linesMesh); linesMesh.geometry.dispose(); linesMesh=null; }
+        const positions = [];
+        for(const v of state.verts){ const p = applyMat4(state.rotationMatrix, v); const proj = project4to3(p, state.dW); positions.push(proj[0],proj[1],proj[2]); }
+        if(state.renderMode==='points'){
+          const geom = new THREE.BufferGeometry(); geom.setAttribute('position', new THREE.Float32BufferAttribute(positions,3)); pointMat.size = parseFloat(document.getElementById('size').value);
+          pointsMesh = new THREE.Points(geom, pointMat); scene.add(pointsMesh);
+        } else {
+          const linePos = [];
+          for(const e of state.edges){ const aIdx=e[0], bIdx=e[1]; const ai = aIdx*3, bi = bIdx*3; if(ai+2 < positions.length && bi+2 < positions.length){ linePos.push( positions[ai+0], positions[ai+1], positions[ai+2], positions[bi+0], positions[bi+1], positions[bi+2] ); } }
+          const geom = new THREE.BufferGeometry(); geom.setAttribute('position', new THREE.Float32BufferAttribute(linePos,3)); linesMesh = new THREE.LineSegments(geom, lineMat); scene.add(linesMesh);
+        }
+      }
+
+      // ---------------------- shape loader ----------------------
+      function loadShape(mode){ state.mode = mode; state.edges=[];
+        if(mode==='tesseract'){ state.verts = tesseractVertices(1.1); state.edges = []; for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){ let diff=0; for(let b=0;b<4;b++) if(((i>>b)&1) !== ((j>>b)&1)) diff++; if(diff===1) state.edges.push([i,j]); } }
+        else if(mode==='hypercube_city'){ const res = hypercubeCity(parseInt(document.getElementById('gridX').value), parseInt(document.getElementById('gridZ').value), parseFloat(document.getElementById('hVar').value)); state.verts = res.verts; state.edges = res.edges; }
+        else if(mode==='hypersphere'){ state.verts = fourSpherePoints(1200,1.1); state.edges = []; }
+        else if(mode==='simplex'){ state.verts = simplex4(); state.edges = []; for(let i=0;i<state.verts.length;i++) for(let j=i+1;j<state.verts.length;j++) state.edges.push([i,j]); }
+        else if(mode==='cone'){ state.verts = cone4(1200); state.edges = []; }
+        updateRender(); }
+
+      // ---------------------- rotation updater ----------------------
+      function buildRotationMatrixFromSliders(t){
+        const rXY = parseFloat(document.getElementById('rXY').value)*t;
+        const rXZ = parseFloat(document.getElementById('rXZ').value)*t;
+        const rYZ = parseFloat(document.getElementById('rYZ').value)*t;
+        const rXW = parseFloat(document.getElementById('rXW').value)*t;
+        const rYW = parseFloat(document.getElementById('rYW').value)*t;
+        const rZW = parseFloat(document.getElementById('rZW').value)*t;
+        let R = mat4Identity(); R = mat4Mul(R, rotation4(0,1,rXY)); R = mat4Mul(R, rotation4(0,2,rXZ)); R = mat4Mul(R, rotation4(1,2,rYZ)); R = mat4Mul(R, rotation4(0,3,rXW)); R = mat4Mul(R, rotation4(1,3,rYW)); R = mat4Mul(R, rotation4(2,3,rZW)); return R; }
+
+      // ---------------------- animation loop ----------------------
+      let lastTime = performance.now();
+      function animate(time){ const dt = (time - lastTime) / 1000; lastTime = time; const gs = parseFloat(document.getElementById('globalSpeed').value);
+        const Rsmall = buildRotationMatrixFromSliders(dt*gs);
+        state.rotationMatrix = mat4Mul(Rsmall, state.rotationMatrix);
+        state.dW = parseFloat(document.getElementById('dW').value);
+        state.renderMode = document.getElementById('renderMode').value;
+        pointMat.size = parseFloat(document.getElementById('size').value);
+        updateRender();
+        renderer.render(scene,camera);
+        requestAnimationFrame(animate);
+      }
+
+      // ---------------------- UI wiring ----------------------
+      document.getElementById('mode').addEventListener('change', (e)=> loadShape(e.target.value));
+      document.getElementById('renderMode').addEventListener('change', ()=> updateRender());
+      document.getElementById('saveBtn').addEventListener('click', ()=>{
+        const blob = new Blob([document.documentElement.outerHTML],{type:'text/html;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+        const a=document.createElement('a'); a.href=url; a.download='4D_simulation.html'; a.click(); URL.revokeObjectURL(url);
+      });
+
+      // add simple mouse controls to orbit camera
+      let isDown=false, startX=0, startY=0; let angleX=0,angleY=0;
+      renderer.domElement.addEventListener('mousedown', (e)=>{ isDown=true; startX=e.clientX; startY=e.clientY; });
+      window.addEventListener('mouseup', ()=> isDown=false);
+      window.addEventListener('mousemove',(e)=>{ if(!isDown) return; const dx=(e.clientX-startX)/200; const dy=(e.clientY-startY)/200; startX=e.clientX; startY=e.clientY; angleY+=dx; angleX+=dy; camera.position.x = Math.sin(angleY)*6; camera.position.y = Math.sin(angleX)*3; camera.position.z = Math.cos(angleY)*6; camera.lookAt(0,0,0); });
+
+      // initial load
+      loadShape('tesseract'); camera.lookAt(0,0,0);
+      requestAnimationFrame(animate);
+
+      // keyboard shortcuts
+      window.addEventListener('keydown',(e)=>{
+        if(e.key==='1') document.getElementById('mode').value='tesseract';
+        if(e.key==='2') document.getElementById('mode').value='hypercube_city';
+        if(e.key==='3') document.getElementById('mode').value='hypersphere';
+        if(e.key==='4') document.getElementById('mode').value='simplex';
+        if(e.key==='5') document.getElementById('mode').value='cone';
+        loadShape(document.getElementById('mode').value);
+      });
+
+      // hide any previous error overlay
+      hideError();
+
+    } // end start
+
+    start();
+  })();
+  </script>
+</body>
+</html>
