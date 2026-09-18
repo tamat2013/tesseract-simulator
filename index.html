@@ -192,7 +192,7 @@
     document.getElementById('membraneOpacity').addEventListener('input', e => { if(membraneMesh && membraneMesh.material) membraneMesh.material.opacity = parseFloat(e.target.value); });
     document.getElementById('colorSelect').addEventListener('change', e => { tesseractColor = parseInt(e.target.value.replace('#','0x')); });
     document.getElementById('reverseRotation').addEventListener('change', e => { reverse = e.target.checked; });
-    document.getElementById('advancedButton').addEventListener('click', () => { window.location.href = '../advanced/'; });
+    document.getElementById('advancedButton').addEventListener('click', () => { window.location.href = 'advanced/'; });
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth/window.innerHeight;

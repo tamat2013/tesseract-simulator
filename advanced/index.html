@@ -220,7 +220,7 @@
         const url = URL.createObjectURL(blob);
         const a=document.createElement('a'); a.href=url; a.download='4D_simulation.html'; a.click(); URL.revokeObjectURL(url);
       });
-      document.getElementById('simpleButton').addEventListener('click', ()=>{ window.location.href = '../simple/'; });
+      document.getElementById('simpleButton').addEventListener('click', ()=>{ window.location.href = '../'; });
 
       // add simple mouse controls to orbit camera
       let isDown=false, startX=0, startY=0; let angleX=0,angleY=0;
